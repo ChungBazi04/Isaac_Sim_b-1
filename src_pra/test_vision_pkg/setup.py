@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'pcA_sub=test_vision_pkg.pcA_sub:main',
+            'pcB_sub=test_vision_pkg.pcB_sub:main',
         ],
     },
 )
