@@ -9,7 +9,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
 
 
-class ColorDetectorNode(Node):
+class PCASub(Node):
     def __init__(self):
         super().__init__('pcA_sub')
 
@@ -151,10 +151,12 @@ class ColorDetectorNode(Node):
 
         self._publish_debug_image(cv_image, blue_contour, green_contour, blue_area, green_area, color_code)
 
+    
+
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ColorDetectorNode()
+    node = PCASub()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
