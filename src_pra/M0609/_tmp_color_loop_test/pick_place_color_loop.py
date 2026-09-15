@@ -404,6 +404,8 @@ SPAWN_SETTLE_STEPS = 90
 NEXT_SPAWN_DELAY = 60
 # 색상을 기다리는 동안 안내를 찍는 간격
 WAIT_HINT_STEPS = 600
+# Play 후 이 스텝에서 Action Graph 에러와 ROS bridge 상태를 한 번 찍는다
+GRAPH_REPORT_STEP = 120
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1226,6 +1228,41 @@ def write_crash_log():
         pass
 
 
+def graph_report(graph_root="/World/Graph"):
+    """ROS bridge 상태와 Action Graph 노드의 에러·경고를 찍는다. 카메라 토픽이 안 나올 때 확인용"""
+    try:
+        import omni.kit.app
+        import omni.graph.core as og
+    except Exception as e:  # noqa: BLE001
+        print(f"   graph report unavailable  {e}")
+        return
+
+    try:
+        manager = omni.kit.app.get_app().get_extension_manager()
+        print(f"   ros2 bridge  enabled={manager.is_extension_enabled('isaacsim.ros2.bridge')}")
+
+        stage = omni.usd.get_context().get_stage()
+        root = stage.GetPrimAtPath(graph_root)
+        if not root.IsValid():
+            print(f"   WARN  {graph_root} not found  camera topics will not be published")
+            return
+
+        found = False
+        for prim in Usd.PrimRange(root):
+            if not prim.HasAttribute("node:type"):
+                continue
+            node = og.Controller.node(str(prim.GetPath()))
+            for severity, tag in ((og.Severity.ERROR, "ERROR"), (og.Severity.WARNING, "WARN")):
+                for text in node.get_compute_messages(severity):
+                    found = True
+                    print(f"   graph {tag:5s} {prim.GetPath()}  {text}")
+        if not found:
+            print("   graph        no node errors")
+        print("   expected     /rgb /depth /camera_info /clock")
+    except Exception as e:  # noqa: BLE001
+        print(f"   graph report failed  {e}")
+
+
 # ══════════════════════════════════════════════════════════════
 #  출력
 # ══════════════════════════════════════════════════════════════
@@ -1330,8 +1367,8 @@ def main():
     print_target_info(target_quat)
 
     section("ROS")
+    ros_env_report()
     if USE_ROS:
-        ros_env_report()
         link = ColorLink()
     else:
         link = NullLink()
@@ -1380,6 +1417,10 @@ def main():
                 link.publish_state("STOPPED")
                 was_playing = is_playing
                 continue
+
+            if step == GRAPH_REPORT_STEP:
+                section("GRAPH CHECK")
+                graph_report()
 
             if home_tcp is None and step >= HOME_SETTLE_STEPS:
                 home_tcp = get_tcp_pose(robot)

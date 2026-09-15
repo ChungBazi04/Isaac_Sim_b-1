@@ -347,3 +347,16 @@ def test_null_link_is_silent_and_empty(capsys):
 
 def test_options_default_to_ros_and_detector():
     assert M.USE_ROS is True and M.SELF_COLOR is False
+
+
+def test_graph_report_never_raises(capsys):
+    """Isaac 모듈이 없어도 진단 함수가 스크립트를 죽이지 않는다"""
+    M.graph_report()
+    out = capsys.readouterr().out
+    assert "graph report" in out
+
+
+def test_env_report_warns_on_system_ros(monkeypatch, capsys):
+    monkeypatch.setenv("PYTHONPATH", "/opt/ros/jazzy/lib/python3.12/site-packages")
+    M.ros_env_report()
+    assert "system ROS on PYTHONPATH" in capsys.readouterr().out
