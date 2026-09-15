@@ -76,7 +76,8 @@ class FakeLink:
 
 
 class Harness:
-    def __init__(self, seed=0, detector=None, solved=None, recorder=None):
+    def __init__(self, seed=0, detector=None, solved=None, recorder=None, self_color=False):
+        self.self_color = self_color
         cubes, self.parks = {}, {}
         index = 0
         for color in M.VALID_MISSION_COLORS:
@@ -133,7 +134,8 @@ class Harness:
         if code is not None:
             self.link.inbox.append(code)
 
-        self.loop.update(HOME)
+        extra = [self.loop.spawned_color] if self.self_color and self.loop.phase == "READY" else ()
+        self.loop.update(HOME, extra)
 
         target = self.fsm.current_target()
         if target is not None:
@@ -323,3 +325,25 @@ def test_state_sequence_for_one_mission():
     expected = ["SPAWN", "WAIT_COLOR", "APPROACH", "DESCEND", "GRASP", "LIFT", "MOVE",
                 "LOWER", "RELEASE", "RETREAT", "RETURN_HOME", "DONE"]
     assert h.link.states[:len(expected)] == expected
+
+
+def test_self_color_runs_loop_without_detector():
+    """--self-color : 감지 노드 없이 스폰한 색으로 미션이 돈다"""
+    h = Harness(seed=23, detector=lambda h: None, self_color=True)
+    h.run_until(6)
+    assert all(r.startswith("SUCCESS") for r in h.link.results[:6])
+    for detected, release_xy, spawned, _ in h.starts[:6]:
+        assert detected == spawned and near_slot(release_xy, spawned)
+
+
+def test_null_link_is_silent_and_empty(capsys):
+    link = M.NullLink()
+    assert link.poll() == []
+    link.publish_state("SPAWN")
+    link.publish_result("SUCCESS #1")
+    link.close()
+    assert "SUCCESS #1" in capsys.readouterr().out
+
+
+def test_options_default_to_ros_and_detector():
+    assert M.USE_ROS is True and M.SELF_COLOR is False

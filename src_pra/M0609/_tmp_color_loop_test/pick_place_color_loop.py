@@ -1,9 +1,13 @@
 """
 [TEST] 랜덤 큐브 스폰 → 색상 번호 수신 → Pick & Place 반복
 
-    isaac_python pick_place_color_loop.py
+    ./run_isaac.sh                          감지 노드(PC B)와 함께
+    ./run_isaac.sh --self-color             감지 노드 없이 스폰한 색으로 루프
+    ./run_isaac.sh --no-ros --self-color    ROS 없이 씬·로봇·루프만
 
 테스트용 단일 파일. 다른 파일을 import 하지 않는다.
+run_isaac.sh 는 시스템 ROS 환경을 걷어낸 뒤 이 파일을 Isaac Sim python 으로 실행한다.
+종료 원인은 화면과 logs/crash_*.txt 에 남는다.
   1. 실행하면 바로 Play 되고 red_block 을 끈다
   2. 파랑·초록 중 랜덤 색 큐브를 홈 자세 그리퍼 바로 아래 랜덤 위치에 스폰한다
   3. /m0609/detected_color (Int32) 를 기다린다
@@ -27,7 +31,10 @@ enable_extension("isaacsim.ros2.bridge")
 simulation_app.update()
 
 import csv
+import os
 import random
+import sys
+import traceback
 from collections import deque
 from datetime import datetime
 
@@ -302,6 +309,12 @@ TCP_OFFSET = np.array([0.0, 0.0, FINGER_PAD_TIP_Z])
 #  테스트 씬 설정
 # ══════════════════════════════════════════════════════════════
 LOG_DIR = THIS_DIR / "logs"
+
+# 실행 옵션
+#   --no-ros       rclpy 를 쓰지 않는다 (씬·로봇만 확인)
+#   --self-color   스폰한 큐브 색을 감지 결과로 쓴다 (감지 노드 없이 루프 확인)
+USE_ROS    = "--no-ros" not in sys.argv
+SELF_COLOR = "--self-color" in sys.argv
 
 # USD 에 들어 있는 red_block 은 스폰 영역·카메라 시야와 겹쳐서 끈다
 DISABLE_PRIMS = ["/World/red_block"]
@@ -1040,8 +1053,8 @@ class CubeLoop:
         return self.STATE_NAMES[self.phase]
 
     # ── 매 스텝 ──────────────────────────────────────────
-    def update(self, home_tcp):
-        codes = self._link.poll()
+    def update(self, home_tcp, extra_codes=()):
+        codes = self._link.poll() + list(extra_codes)
 
         if self.phase == "INIT":
             if home_tcp is not None:
@@ -1164,6 +1177,55 @@ class CubeLoop:
                   f"  error {self.stats['ERROR']}")
 
 
+class NullLink:
+    """--no-ros 일 때 ColorLink 대신 쓴다. 결과만 화면에 찍는다"""
+
+    def poll(self):
+        return []
+
+    def publish_state(self, state):
+        pass
+
+    def publish_result(self, result):
+        print(f"   [result] {result}")
+
+    def log(self, text):
+        print(f"   [ros-off] {text}")
+
+    def warn(self, text):
+        print(f"   [ros-off] WARN {text}")
+
+    def close(self):
+        pass
+
+
+def ros_env_report():
+    """rclpy 를 불러오기 전에 환경을 찍는다. import 실패 원인 확인용"""
+    print(f"   python       {sys.version.split()[0]}")
+    for key in ("ROS_DISTRO", "RMW_IMPLEMENTATION", "ROS_DOMAIN_ID", "FASTRTPS_DEFAULT_PROFILES_FILE"):
+        print(f"   {key:31s}{os.environ.get(key, '(unset)')}")
+    ros_libs = [p for p in os.environ.get("LD_LIBRARY_PATH", "").split(":") if "ros" in p]
+    print(f"   LD_LIBRARY_PATH (ros)          {ros_libs or '(none)'}")
+    system_ros = [p for p in os.environ.get("PYTHONPATH", "").split(":") if p.startswith("/opt/ros")]
+    if system_ros:
+        print(f"   WARN  system ROS on PYTHONPATH {system_ros}")
+        print("         Isaac Sim 은 Python 3.11 내장 rclpy 를 써야 한다. run_isaac.sh 로 실행할 것")
+
+
+def write_crash_log():
+    """예외를 화면과 logs/crash_*.txt 에 남긴다"""
+    text = traceback.format_exc()
+    bar = "=" * 66
+    print(f"\n{bar}\n [CRASH] 종료 원인\n{bar}\n{text}", flush=True)
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        path = LOG_DIR / f"crash_{datetime.now():%Y%m%d_%H%M%S}.txt"
+        path.write_text(text)
+        print(f" saved {path}", flush=True)
+    except OSError:
+        pass
+
+
 # ══════════════════════════════════════════════════════════════
 #  출력
 # ══════════════════════════════════════════════════════════════
@@ -1268,7 +1330,14 @@ def main():
     print_target_info(target_quat)
 
     section("ROS")
-    link = ColorLink()
+    if USE_ROS:
+        ros_env_report()
+        link = ColorLink()
+    else:
+        link = NullLink()
+        print("   --no-ros     rclpy disabled")
+    if SELF_COLOR:
+        print("   --self-color spawned color is used as the detected color")
     gate = ColorGate()
 
     log_path = LOG_DIR / f"run_{datetime.now():%Y%m%d_%H%M%S}.csv"
@@ -1316,7 +1385,9 @@ def main():
                 home_tcp = get_tcp_pose(robot)
                 print(f"   home tcp     {vec(home_tcp)}")
 
-            loop.update(home_tcp)
+            # --self-color 이면 감지 노드 대신 스폰한 색을 넣는다
+            extra = [loop.spawned_color] if SELF_COLOR and loop.phase == "READY" else ()
+            loop.update(home_tcp, extra)
 
             # 팔 — 미션이 없으면 명령하지 않고 제자리를 유지한다
             target_tcp = fsm.current_target()
@@ -1346,8 +1417,13 @@ def main():
         loop.close()
         link.close()
 
-    simulation_app.close()
-
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n   interrupted")
+    except BaseException:
+        write_crash_log()
+    finally:
+        simulation_app.close()
