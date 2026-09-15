@@ -9,7 +9,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
 
 
-class PCASub(Node):
+class PCBSub(Node):
     def __init__(self):
         super().__init__('pcA_sub')
 
