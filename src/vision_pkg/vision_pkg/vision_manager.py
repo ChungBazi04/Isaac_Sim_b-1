@@ -9,6 +9,7 @@ Isaac Sim 카메라 데이터를 TargetDetector로 전달하는 ROS 2 노드.
 
 import rclpy
 import cv2
+import math
 from ultralytics import YOLO
 
 from rclpy.node import Node
@@ -34,16 +35,9 @@ class VisionManager(Node):
         self.model_path = self.declare_parameter('model_path', '').value
         self.target_topic = self.declare_parameter(
             'target_topic', '/m0609/empty_shelf_position').value
-        self.shelf_x_min = float(self.declare_parameter('shelf_x_min', -0.5).value)
-        self.shelf_x_max = float(self.declare_parameter('shelf_x_max', 0.5).value)
-        self.shelf_y_min = float(self.declare_parameter('shelf_y_min', -0.5).value)
-        self.shelf_y_max = float(self.declare_parameter('shelf_y_max', 0.5).value)
-        self.shelf_z = float(self.declare_parameter('shelf_z', 1.0).value)
-        self.book_width = float(self.declare_parameter('book_width', 0.25).value)
-        self.shelf_levels = [
-            float(level) for level in self.declare_parameter(
-                'shelf_levels', [0.0]).value
-        ]
+        self.scan_radius = float(self.declare_parameter('scan_radius', 0.15).value)
+        self.scan_pixel_u = int(self.declare_parameter('scan_pixel_u', -1).value)
+        self.scan_pixel_v = int(self.declare_parameter('scan_pixel_v', -1).value)
 
 
         if not self.model_path:
@@ -53,15 +47,7 @@ class VisionManager(Node):
 
         self.model = YOLO(self.model_path)
         self.book_detector = BookDetector()
-        self.target_detector = TargetDetector(
-            shelf_x_min=self.shelf_x_min,
-            shelf_x_max=self.shelf_x_max,
-            shelf_y_min=self.shelf_y_min,
-            shelf_y_max=self.shelf_y_max,
-            shelf_z=self.shelf_z,
-            book_width=self.book_width,
-            shelf_levels=self.shelf_levels,
-        )
+        self.target_detector = TargetDetector(self.scan_radius)
         self.target_pub = self.create_publisher(PointStamped, self.target_topic, 10)
         self.latest_depth = None
         self.camera_info = None
@@ -127,7 +113,9 @@ class VisionManager(Node):
                 f"Book detected: xyz={target['xyz']}, "
                 f"center={target['center']}")
 
-        empty_position = self.target_detector.process(detected_targets)
+        scan_xyz = self._scan_position(
+            self.latest_depth, fx, fy, cx, cy)
+        empty_position = self.target_detector.process(detected_targets, scan_xyz)
         if empty_position is None:
             self.get_logger().info('No placeable empty shelf position found')
             return
@@ -136,6 +124,27 @@ class VisionManager(Node):
         point.header = msg.header
         point.point.x, point.point.y, point.point.z = empty_position['xyz']
         self.target_pub.publish(point)
+
+    def _scan_position(self, depth_image, fx, fy, cx, cy):
+        height, width = depth_image.shape[:2]
+        u = self.scan_pixel_u if self.scan_pixel_u >= 0 else width // 2
+        v = self.scan_pixel_v if self.scan_pixel_v >= 0 else height // 2
+        if not (0 <= u < width and 0 <= v < height):
+            self.get_logger().warning('Scan pixel is outside the depth image')
+            return None
+
+        depth_value = depth_image[v, u]
+        depth = float(depth_value)
+        if not math.isfinite(depth) or depth <= 0:
+            return None
+        if depth_image.dtype.name == 'uint16':
+            depth /= 1000.0
+
+        return (
+            (u - cx) * depth / fx,
+            (v - cy) * depth / fy,
+            depth,
+        )
 
     def _detect_books(self, rgb_image):
         detections = []
