@@ -31,7 +31,9 @@ class VisionManager(Node):
         self.depth_topic = self.declare_parameter('depth_topic', '/depth').value
         self.camera_info_topic = self.declare_parameter(
             'camera_info_topic', '/camera_info').value
-        
+
+        # 학습된 YOLO 모델(.pt) 파일의 절대 경로를 실행 시 model_path로 입력하세요.
+        # 예: -p model_path:=/home/rokey/models/book_best.pt
         self.model_path = self.declare_parameter('model_path', '').value
         self.target_topic = self.declare_parameter(
             'target_topic', '/m0609/empty_shelf_position').value
