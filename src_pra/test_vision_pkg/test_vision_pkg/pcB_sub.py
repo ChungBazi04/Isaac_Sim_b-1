@@ -156,7 +156,7 @@ class PCBSub(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = PCASub()
+    node = PCBSub()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
