@@ -9,6 +9,7 @@ Isaac Sim 카메라 데이터를 TargetDetector로 전달하는 ROS 2 노드.
 
 import rclpy
 import cv2
+from ultralytics import YOLO
 
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
@@ -50,7 +51,8 @@ class VisionManager(Node):
                 'model_path parameter is required, for example '
                 '-p model_path:=/path/to/book_best.pt')
 
-        self.detector = BookDetector(self.model_path)
+        self.model = YOLO(self.model_path)
+        self.book_detector = BookDetector()
         self.target_detector = TargetDetector(
             shelf_x_min=self.shelf_x_min,
             shelf_x_max=self.shelf_x_max,
@@ -107,8 +109,9 @@ class VisionManager(Node):
             return
 
         try:
-            detected_targets = self.detector.process(
-                rgb_image,
+            detections = self._detect_books(rgb_image)
+            detected_targets = self.book_detector.process(
+                detections,
                 self.latest_depth,
                 fx,
                 fy,
@@ -133,6 +136,18 @@ class VisionManager(Node):
         point.header = msg.header
         point.point.x, point.point.y, point.point.z = empty_position['xyz']
         self.target_pub.publish(point)
+
+    def _detect_books(self, rgb_image):
+        detections = []
+        results = self.model(rgb_image, verbose=False)
+        for result in results:
+            for box in result.boxes:
+                class_id = int(box.cls[0])
+                class_name = self.model.names[class_id]
+                if class_name != 'book':
+                    continue
+                detections.append(tuple(map(int, box.xyxy[0])))
+        return detections
 
 
 
