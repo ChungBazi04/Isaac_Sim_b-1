@@ -172,7 +172,7 @@ def main(args=None):
         rclpy.spin(node)
 
     except KeyboardInterrupt:
-        node.get_logger.warn("강제 종료")
+        node.get_logger().warn("강제 종료")
 
     finally:
 
