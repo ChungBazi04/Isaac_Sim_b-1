@@ -32,9 +32,12 @@ class VisionManager(Node):
         self.camera_info_topic = self.declare_parameter(
             'camera_info_topic', '/camera_info').value
 
-        # 학습된 YOLO 모델(.pt) 파일의 절대 경로를 실행 시 model_path로 입력하세요.
-        # 예: -p model_path:=/home/rokey/models/book_best.pt
-        self.model_path = self.declare_parameter('model_path', '').value
+        # book_dataset에서 학습된 YOLO 모델(.pt) 파일 경로입니다.
+        # 다른 모델을 사용할 때만 실행 시 -p model_path:=... 로 덮어쓰세요.
+        self.model_path = self.declare_parameter(
+            'model_path',
+            '/home/rokey/book_dataset/runs/segment/runs/book/weights/best.pt',
+        ).value
         self.target_topic = self.declare_parameter(
             'target_topic', '/m0609/empty_shelf_position').value
         self.scan_radius = float(self.declare_parameter('scan_radius', 0.15).value)
